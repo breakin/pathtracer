@@ -91,12 +91,28 @@ struct Camera {
 
 inline Float3 generate_camera_direction(const Camera &camera, float u, float v) {
 	Float3 d = camera.forward;
-	d += camera.right * u;
-	d += camera.up * v;
+	d += camera.right * (u*2.0f-1.0f);
+	d += camera.up * (v*2.0f-1.0f);
 	return normalized(d);
 }
 
+inline Float3 sky_color_in_direction(const Scene &scene, const Float3 dir) { return float3(0.7f, 0.7f, 1.2f); }
+
 bool intersect_closest(const Scene &scene, const Float3 pos, const Float3 dir, IntersectResult &out_result);
 
+/*
+	This is where we stick per-thread information such as seed for random number generators
+
+*/
+struct ThreadContext {
+	uint32_t thread_index;
+	uint32_t image_index = 0;
+};
+
+// TODO: Turn this into something proper
+inline float uniform(ThreadContext &tc) {
+	return rand()/(float)RAND_MAX;
+}
+
 // To be implemented by post
-Float3 pathtrace_pixel(const Scene &scene, const Camera &camera, uint32_t x, uint32_t y, uint32_t width, uint32_t height, float u0, float v0, float uw, float vw);
+Float3 pathtrace_sample(ThreadContext &settings, const Scene &scene, const Camera &camera, uint32_t x, uint32_t y, uint32_t width, uint32_t height, uint32_t sample_index, float one_over_width, float one_over_height);

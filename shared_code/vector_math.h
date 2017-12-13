@@ -33,6 +33,24 @@ inline Float3 operator*(const Float3 a, const Float3 b) { return float3(a.x*b.x,
 inline Float3 operator+(const Float3 a, const Float3 b) { return float3(a.x+b.x, a.y+b.y, a.z+b.z); }
 inline Float3 operator-(const Float3 a, const Float3 b) { return float3(a.x-b.x, a.y-b.y, a.z-b.z); }
 inline Float3 operator-(const Float3 a) { return float3(-a.x, -a.y, -a.z); }
+inline float mean(const Float3 a) { return (a.x+a.y+a.z)*(1.0f/3.0f); }
+inline float max(const Float3 a) { return std::max(std::max(a.x, a.y), a.z); }
+inline float clamp(float v, float m0, float m1) {
+	if (v<m0) return m0;
+	if (v>m1) return m1;
+	return v;
+}
+
+inline Float3 saturate(const Float3 a) {
+	Float3 r = a;
+	if (r.x<0.0) r.x = 0.0;
+	if (r.y<0.0) r.y = 0.0;
+	if (r.z<0.0) r.z = 0.0;
+	if (r.x>1.0) r.x = 1.0;
+	if (r.y>1.0) r.y = 1.0;
+	if (r.z>1.0) r.z = 1.0;
+	return r;
+}
 
 inline float dot(Float3 a, Float3 b) { return a.x*b.x+a.y*b.y+a.z*b.z; }
 
@@ -60,12 +78,6 @@ inline Float3 frame(Float3 normal, float x, float y, float z) {
 	Float3 xaxis = normalized(cross(normal, minor_axis));
 	const Float3 yaxis = cross(xaxis, normal);
 	return xaxis*x + yaxis*y + normal*z;
-}
-
-// TODO: While it is ok to have a naive RNG at first we must at least have something that is threadable
-//       A per-thread context makes sense but if we are going to deterministic numbers then we might not need it
-inline float uniform() {
-	return rand()/(float)RAND_MAX;
 }
 
 inline Float3 random_cosine_hemisphere(Float3 normal, float u1, float u2) { // TODO: Rename u0, u1

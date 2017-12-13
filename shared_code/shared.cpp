@@ -11,7 +11,7 @@
 #include <atomic>
 #include <thread>
 
-// TODO: Find a good tilesize for a common computer
+// TODO: Find a good generic tilesize
 #define TILESIZE 16
 
 namespace {
@@ -168,10 +168,62 @@ Float3 ACESFilm(Float3 x)
 	Float3 n = (x*(c*x+d)+e);
 	Float3 in = float3(1.0f/n.x, 1.0f/n.y, 1.0f/n.z);
 
-    return (t*in); // TODO: Saturate
+    return saturate(t*in);
 }
 
-int main(void) {
+struct Settings {
+	uint32_t image_index = 0; // Basically image index for the blog post
+	uint32_t num_threads = 0;
+	uint32_t width = 640;
+	uint32_t height = 480;
+	uint32_t num_samples = 64;
+	const char *output = "image.png";
+};
+
+bool parse_command_line(Settings &settings, int argc, char **argv) {
+
+	// TODO: Actually parse the command line and update settings!
+	for (int i = 1; i<argc; ) {
+		uint32_t uint_value = 0;
+		bool has_uint = false;
+		if (i!=argc) {
+			has_uint = sscanf(argv[i+1], "%u", &uint_value) == 1;
+		}
+
+		     if (strcmp(argv[i], "-image_index")==0) { assert(has_uint); settings.image_index = uint_value; i++; }
+		else if (strcmp(argv[i], "-width")==0) { assert(has_uint); settings.width = uint_value; i++; }
+		else if (strcmp(argv[i], "-height")==0) { assert(has_uint); settings.height = uint_value; i++; }
+		else if (strcmp(argv[i], "-samples")==0) { assert(has_uint); settings.num_samples = uint_value; i++; }
+		else if (strcmp(argv[i], "-output")==0) { settings.output = argv[i+1]; i++; }
+	}
+
+	// TODO: Support partial tiles?
+	if ((settings.width  % TILESIZE)!=0) return false;
+	if ((settings.height % TILESIZE)!=0) return false;
+
+	const uint32_t num_tiles_x = (settings.width  + TILESIZE-1)/TILESIZE;
+	const uint32_t num_tiles_y = (settings.height + TILESIZE-1)/TILESIZE;
+	const uint32_t num_tiles = num_tiles_x * num_tiles_y;
+
+	if (settings.num_threads == 0) {
+		settings.num_threads = std::min(std::thread::hardware_concurrency(), num_tiles);
+	}
+	printf("Using %d threads\n", settings.num_threads);
+	return true;
+}
+
+int main(int argc, char **argv) {
+	Settings settings;
+	if (!parse_command_line(settings, argc, argv))
+		return 1;
+	
+	const uint32_t width       = settings.width;
+	const uint32_t height      = settings.height;
+	const uint32_t num_threads = settings.num_threads;
+	const uint32_t num_tiles_x = (settings.width  + TILESIZE-1)/TILESIZE;
+	const uint32_t num_tiles_y = (settings.height + TILESIZE-1)/TILESIZE;
+	const uint32_t num_tiles   = num_tiles_x * num_tiles_y;
+
 	srand(1239);
 
 	RTCDevice embree_device = rtcNewDevice();
@@ -179,7 +231,6 @@ int main(void) {
 	rtcDeviceSetErrorFunction2(embree_device, embree_error, nullptr);
 	create_scene(embree_device, scene);
 
-	uint32_t width=640, height=480;
 	std::vector<Pixel> framebuffer;
 	framebuffer.resize(width*height);
 	memset(&framebuffer[0], 0, sizeof(Pixel)*width*height);
@@ -191,41 +242,29 @@ int main(void) {
 	camera.up = float3(0,-1,0); // TODO: Choose a coordinate system and act accordingly! -1 fixes that v value is upside down.. or is it?
 	camera.right = float3(1,0,0);
 
-	float du = 2.0f/width;
-	float dv = 2.0f/height;
-
-	uint32_t num_tiles_x = (width  + TILESIZE-1)/TILESIZE;
-	uint32_t num_tiles_y = (height + TILESIZE-1)/TILESIZE;
-	uint32_t num_tiles = num_tiles_x*num_tiles_y;
-
-	uint32_t num_threads = std::min(std::thread::hardware_concurrency(), num_tiles);
-	printf("Using %d threads\n", num_threads);
-
 	std::atomic<uint32_t> next_tile_generator = 0;
 
 	// TODO: Is there a benefit passing all the captured stuff as parameters? We have them in scope when we call the function so might as well
-	auto thread_func = [&next_tile_generator, num_tiles, num_tiles_x, &framebuffer, height, width, &scene, &camera, du, dv](uint32_t thread_index) {
+	auto thread_func = [&settings, &next_tile_generator, num_tiles, num_tiles_x, &framebuffer, height, width, &scene, &camera](uint32_t thread_index) {
+		ThreadContext thread_context;
+		thread_context.image_index = settings.image_index;
+		thread_context.thread_index = thread_index;
+		const float iw = 1.0f/width;
+		const float ih = 1.0f/height;
+		const uint32_t num_samples = settings.num_samples;
 		while (true) {
 			uint32_t tile = next_tile_generator++;
 			if (tile >= num_tiles)
 				return;
-			const uint32_t tile_x = tile % num_tiles_x;
-			const uint32_t tile_y = tile / num_tiles_x;
-			const uint32_t gx = tile_x * TILESIZE, gy = tile_y * TILESIZE;
+			const uint32_t tile_start_x = (tile % num_tiles_x) * TILESIZE;
+			const uint32_t tile_start_y = (tile / num_tiles_x) * TILESIZE;
 
 			uint32_t destination_offset = tile * (TILESIZE * TILESIZE);
-
-			// TODO: Support partial tiles?
 			for (uint32_t y = 0; y<TILESIZE; ++y) {
-				float v = (gy+y+0.5f) / (float)height;
-				v = v * 2.0f - 1.0f;
 				for (uint32_t x = 0; x<TILESIZE; ++x, ++destination_offset) {
-					float u = (gx+x+0.5f) / (float)width;
-					u = u * 2.0f - 1.0f;
-
-					for (uint32_t ns = 0; ns < 64; ns++) {
+					for (uint32_t ns = 0; ns < num_samples; ns++) {
 						Pixel &pixel = framebuffer[destination_offset];
-						Float3 color = pathtrace_pixel(scene, camera, x,y,width,height,u,v,du,dv);
+						Float3 color = pathtrace_sample(thread_context, scene, camera, tile_start_x+x, tile_start_y+y, width, height, ns, iw, ih);
 						pixel.N++;
 						pixel.rgb += (color-pixel.rgb) * (1.0f/pixel.N);
 					}
@@ -264,7 +303,7 @@ int main(void) {
 		}
 	}
 
-	stbi_write_png("output.png", width, height, 4, (const void*)&byte_data[0], 0);
+	stbi_write_png(settings.output, width, height, 4, (const void*)&byte_data[0], 0);
 
 	rtcDeleteScene(scene.embree_scene);
 	rtcDeleteDevice(embree_device);
