@@ -14,3 +14,5 @@ include(deps/embree-windows/embree-config.cmake)
 
 add_subdirectory(shared_code)
 add_subdirectory(post1)
+add_subdirectory(post2)
+add_subdirectory(post3)

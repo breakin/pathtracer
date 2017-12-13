@@ -27,7 +27,9 @@ inline Float4 float4(float x, float y, float z, float w) { Float4 r; r.x = x; r.
 inline void operator+=(Float3 &a, const Float3 o) { a.x+=o.x; a.y+=o.y; a.z+=o.z; }
 inline void operator-=(Float3 &a, const Float3 o) { a.x-=o.x; a.y-=o.y; a.z-=o.z; }
 inline void operator*=(Float3 &a, const Float3 o) { a.x*=o.x; a.y*=o.y; a.z*=o.z; }
+inline void operator/=(Float3 &a, const float o) { a.x/=o; a.y/=o; a.z/=o; }
 inline Float3 operator*(const Float3 a, const float m) { return float3(a.x*m, a.y*m, a.z*m); }
+inline Float3 operator/(const Float3 a, const float m) { return float3(a.x/m, a.y/m, a.z/m); }
 inline Float3 operator*(const float a, const Float3 b) { return float3(a*b.x, a*b.y, a*b.z); }
 inline Float3 operator*(const Float3 a, const Float3 b) { return float3(a.x*b.x, a.y*b.y, a.z*b.z); }
 inline Float3 operator+(const Float3 a, const Float3 b) { return float3(a.x+b.x, a.y+b.y, a.z+b.z); }
@@ -91,4 +93,23 @@ inline Float3 random_cosine_hemisphere(Float3 normal, float u1, float u2) { // T
 	const float z = cos_theta;
 
 	return frame(normal, x, y, z);
+}
+
+inline Float3 random_sphere(float u1, float u2) { // TODO: Rename u0, u1
+	const float cos_theta = u2*2-1;
+	const float sin_theta = sqrtf(1.0f-cos_theta*cos_theta); // TODO: Might underflow
+
+	const float phi = float(2.0*M_PI)*u1;
+
+	const float x = sin_theta*cosf(phi);
+	const float y = sin_theta*sinf(phi);
+	const float z = cos_theta;
+
+	return float3(x, y, z);
+}
+
+inline Float3 random_hemisphere(Float3 normal, float u1, float u2) { // TODO: Rename u0, u1
+	// First generate a direction on the whole sphere
+	const Float3 sphere = random_sphere(u1, u2);
+	return dot(sphere, normal) >= 0.0f ? sphere : -sphere;
 }

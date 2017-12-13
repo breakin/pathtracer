@@ -217,7 +217,7 @@ bool parse_command_line(Settings &settings, int argc, char **argv) {
 	if (settings.num_threads == 0) {
 		settings.num_threads = std::min(std::thread::hardware_concurrency(), num_tiles);
 	}
-	printf("Using %d threads\n", settings.num_threads);
+	printf("Render image %d in %dx%d (%d spp, %d threads) to '%s'\n", settings.image_index, settings.width, settings.height, settings.num_samples, settings.num_threads, settings.output);
 	return true;
 }
 
