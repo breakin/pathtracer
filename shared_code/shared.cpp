@@ -1,3 +1,4 @@
+#include "shared.h"
 #include <embree2/rtcore.h>
 #include <embree2/rtcore_scene.h>
 #include <embree2/rtcore_geometry.h>
@@ -5,9 +6,13 @@
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb_image_write.h"
 #include <algorithm>
-#include "shared.h"
 #include <vector>
 #include <assert.h>
+#include <atomic>
+#include <thread>
+
+// TODO: Find a good tilesize for a common computer
+#define TILESIZE 16
 
 namespace {
 	struct Material {
@@ -65,16 +70,7 @@ namespace {
 		exit(1);
 	}
 
-	//void post1(const Scene * const scene, Pixel &pixel, );
-
-	struct Context {
-		RTCDevice embree_device;
-		Scene scene;
-	};
-
 	void add_cube(Scene &scene, uint32_t material_id, const Float3 center_pos, const Float3 size) {
-
-		// TODO: Can we use rtcSetTransform on a non-instance? I think not.
 
 		// TODO: Add normal that we can interpolate
 
@@ -133,9 +129,8 @@ namespace {
 		rtcUnmapBuffer(scene.embree_scene, mesh_id, RTC_VERTEX_BUFFER);
 	}
 
-	void create_scene(Context &context) {
-		Scene &scene = context.scene;
-		scene.embree_scene = rtcDeviceNewScene(context.embree_device, RTC_SCENE_STATIC|RTC_SCENE_INCOHERENT, RTC_INTERSECT1|RTC_INTERPOLATE);
+	void create_scene(RTCDevice embree_device, Scene &scene) {
+		scene.embree_scene = rtcDeviceNewScene(embree_device, RTC_SCENE_STATIC|RTC_SCENE_INCOHERENT, RTC_INTERSECT1|RTC_INTERPOLATE);
 
 		uint32_t red_material = scene.materials.size();
 		scene.materials.push_back(Material{float3(1.0f,0.5f,0.5f), float3(0,0,0)});
@@ -178,12 +173,11 @@ Float3 ACESFilm(Float3 x)
 
 int main(void) {
 	srand(1239);
-	Context context;
-	context.embree_device = rtcNewDevice();
-	rtcDeviceSetErrorFunction2(context.embree_device, embree_error, &context);
-	create_scene(context);
 
-	const Scene &active_scene = context.scene;
+	RTCDevice embree_device = rtcNewDevice();
+	Scene scene;
+	rtcDeviceSetErrorFunction2(embree_device, embree_error, nullptr);
+	create_scene(embree_device, scene);
 
 	uint32_t width=640, height=480;
 	std::vector<Pixel> framebuffer;
@@ -200,26 +194,67 @@ int main(void) {
 	float du = 2.0f/width;
 	float dv = 2.0f/height;
 
-	// TODO: Multi-thread these loops. Use tile
-	for (uint32_t y=0, ofs=0; y<height; y++) {
-		float v = (y+0.5f) / (float)height;
-		v = v * 2.0f - 1.0f;
-		for (uint32_t x=0; x<width; x++, ofs++) {
-			float u = (x+0.5f) / (float)width;
-			u = u * 2.0f - 1.0f;
-			Pixel &pixel = framebuffer[ofs];
-			for (int k=0; k<256; k++) {
-				Float3 color = pathtrace_pixel(active_scene, camera, x,y,width,height,u,v,du,dv);
-				pixel.N++;
-				pixel.rgb += (color-pixel.rgb) * (1.0f/pixel.N);
+	uint32_t num_tiles_x = (width  + TILESIZE-1)/TILESIZE;
+	uint32_t num_tiles_y = (height + TILESIZE-1)/TILESIZE;
+	uint32_t num_tiles = num_tiles_x*num_tiles_y;
+
+	uint32_t num_threads = std::min(std::thread::hardware_concurrency(), num_tiles);
+	printf("Using %d threads\n", num_threads);
+
+	std::atomic<uint32_t> next_tile_generator = 0;
+
+	// TODO: Is there a benefit passing all the captured stuff as parameters? We have them in scope when we call the function so might as well
+	auto thread_func = [&next_tile_generator, num_tiles, num_tiles_x, &framebuffer, height, width, &scene, &camera, du, dv](uint32_t thread_index) {
+		while (true) {
+			uint32_t tile = next_tile_generator++;
+			if (tile >= num_tiles)
+				return;
+			const uint32_t tile_x = tile % num_tiles_x;
+			const uint32_t tile_y = tile / num_tiles_x;
+			const uint32_t gx = tile_x * TILESIZE, gy = tile_y * TILESIZE;
+
+			uint32_t destination_offset = tile * (TILESIZE * TILESIZE);
+
+			// TODO: Support partial tiles?
+			for (uint32_t y = 0; y<TILESIZE; ++y) {
+				float v = (gy+y+0.5f) / (float)height;
+				v = v * 2.0f - 1.0f;
+				for (uint32_t x = 0; x<TILESIZE; ++x, ++destination_offset) {
+					float u = (gx+x+0.5f) / (float)width;
+					u = u * 2.0f - 1.0f;
+
+					for (uint32_t ns = 0; ns < 64; ns++) {
+						Pixel &pixel = framebuffer[destination_offset];
+						Float3 color = pathtrace_pixel(scene, camera, x,y,width,height,u,v,du,dv);
+						pixel.N++;
+						pixel.rgb += (color-pixel.rgb) * (1.0f/pixel.N);
+					}
+				}
 			}
 		}
+	};
+
+	std::vector<std::thread> threads;
+	for (uint32_t i = 0; i<num_threads; ++i) {
+		std::thread t(thread_func, i);
+		threads.push_back(std::move(t));
 	}
-	
+
+	for (auto &t : threads) {
+		t.join();
+	}
+
 	std::vector<uint32_t> byte_data(width*height);
 	for (uint32_t y=0, ofs=0; y<height; y++) {
 		for (uint32_t x=0; x<width; x++, ofs++) {
-			Float3 result = ACESFilm(framebuffer[ofs].rgb);
+
+			// Lets figure out the "tiled" coordinate of this pixel
+			uint32_t tx = x / TILESIZE, ty = y / TILESIZE;
+			uint32_t lx = x - tx * TILESIZE, ly = y - ty * TILESIZE;
+			uint32_t tile = ty * num_tiles_x + tx;
+			uint32_t source_ofs = tile * (TILESIZE * TILESIZE) + ly * TILESIZE + lx;
+
+			Float3 result = ACESFilm(framebuffer[source_ofs].rgb);
 			uint8_t r8 = (uint8_t)std::min(round(result.x * 255.0f), 255.0f);
 			uint8_t g8 = (uint8_t)std::min(round(result.y * 255.0f), 255.0f);
 			uint8_t b8 = (uint8_t)std::min(round(result.z * 255.0f), 255.0f);
@@ -231,7 +266,7 @@ int main(void) {
 
 	stbi_write_png("output.png", width, height, 4, (const void*)&byte_data[0], 0);
 
-	rtcDeleteScene(context.scene.embree_scene);
-	rtcDeleteDevice(context.embree_device);
+	rtcDeleteScene(scene.embree_scene);
+	rtcDeleteDevice(embree_device);
 	return 0;
 }

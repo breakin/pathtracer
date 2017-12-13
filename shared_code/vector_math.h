@@ -64,11 +64,11 @@ inline Float3 frame(Float3 normal, float x, float y, float z) {
 
 // TODO: While it is ok to have a naive RNG at first we must at least have something that is threadable
 //       A per-thread context makes sense but if we are going to deterministic numbers then we might not need it
-float uniform() {
+inline float uniform() {
 	return rand()/(float)RAND_MAX;
 }
 
-Float3 random_cosine_hemisphere(Float3 normal, float u1, float u2) { // TODO: Rename u0, u1
+inline Float3 random_cosine_hemisphere(Float3 normal, float u1, float u2) { // TODO: Rename u0, u1
 	const float cos_theta = sqrtf(u2);
 	const float sin_theta = sqrtf(std::max(1.0f-u2, 0.0f)); // TODO: Can underflow
 
