@@ -181,9 +181,14 @@ struct Settings {
 };
 
 bool parse_command_line(Settings &settings, int argc, char **argv) {
-
-	// TODO: Actually parse the command line and update settings!
-	for (int i = 1; i<argc; ) {
+	bool found = false;
+	for (int i = 1; i<argc; ++i) {
+		if (!found && argv[i][0] != '-') {
+			// This is a workaround for the fact that depending on how the binary is launched that name of the binary
+			// might exist one or two times. So we skip any arguments until first one with a -
+			found = true;
+			continue;
+		}
 		uint32_t uint_value = 0;
 		bool has_uint = false;
 		if (i!=argc) {
@@ -195,6 +200,10 @@ bool parse_command_line(Settings &settings, int argc, char **argv) {
 		else if (strcmp(argv[i], "-height")==0) { assert(has_uint); settings.height = uint_value; i++; }
 		else if (strcmp(argv[i], "-samples")==0) { assert(has_uint); settings.num_samples = uint_value; i++; }
 		else if (strcmp(argv[i], "-output")==0) { settings.output = argv[i+1]; i++; }
+		else {
+			printf("Invalid command line option '%s'", argv[i]);
+			return false;
+		}
 	}
 
 	// TODO: Support partial tiles?
