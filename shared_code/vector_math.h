@@ -54,6 +54,10 @@ inline Float3 saturate(const Float3 a) {
 	return r;
 }
 
+inline Float3 lerp(const Float3 a, const Float3 b, float f) {
+	return float3(a.x * (1.0f-f) + b.x * f, a.y * (1.0f-f) + b.y * f, a.z * (1.0f-f) + b.z * f );
+}
+
 inline float dot(Float3 a, Float3 b) { return a.x*b.x+a.y*b.y+a.z*b.z; }
 
 inline Float3 cross(Float3 a, Float3 v) {

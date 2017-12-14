@@ -24,13 +24,7 @@ Float3 pathtrace_sample(ThreadContext &thread_context, const Scene &scene, const
 		}
 
 		accumulated_color += intersect.emissive * accumulated_importance;
-		dir = random_hemisphere(intersect.face_normal, uniform(thread_context), uniform(thread_context));
-		
-		float area_hemisphere = float(2.0*M_PI);
-		float probability_choosing_dir = 1.0f/area_hemisphere;
-		float brdf_without_color = dot(dir, intersect.face_normal) * float(1.0/M_PI);
-
-		accumulated_importance *= intersect.diffuse * (brdf_without_color / probability_choosing_dir);
+		accumulated_importance *= intersect.diffuse;
 
 		float probability_continue = clamp(mean(accumulated_importance), 0.05f, 0.98f);
 		if (probability_continue < uniform(thread_context))
@@ -38,6 +32,7 @@ Float3 pathtrace_sample(ThreadContext &thread_context, const Scene &scene, const
 		accumulated_importance /= probability_continue;
 
 		pos = intersect.pos + intersect.face_normal * 1E-6f;
+		dir = random_cosine_hemisphere(intersect.face_normal, uniform(thread_context), uniform(thread_context));
 	}
 
 	return accumulated_color;

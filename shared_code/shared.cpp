@@ -177,6 +177,7 @@ struct Settings {
 	uint32_t width = 640;
 	uint32_t height = 480;
 	uint32_t num_samples = 64;
+	uint32_t camera_index = 0;
 	const char *output = "image.png";
 };
 
@@ -199,6 +200,7 @@ bool parse_command_line(Settings &settings, int argc, char **argv) {
 		else if (strcmp(argv[i], "-width")==0) { assert(has_uint); settings.width = uint_value; i++; }
 		else if (strcmp(argv[i], "-height")==0) { assert(has_uint); settings.height = uint_value; i++; }
 		else if (strcmp(argv[i], "-samples")==0) { assert(has_uint); settings.num_samples = uint_value; i++; }
+		else if (strcmp(argv[i], "-camera")==0) { assert(has_uint); settings.camera_index = uint_value; i++; }
 		else if (strcmp(argv[i], "-output")==0) { settings.output = argv[i+1]; i++; }
 		else {
 			printf("Invalid command line option '%s'", argv[i]);

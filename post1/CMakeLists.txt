@@ -1,5 +1,1 @@
-set(SOURCES post1.cpp)
-add_executable(post1 ${SOURCES})
-source_group("source" FILES ${SOURCES})
-target_link_libraries(post1 shared_code)
-install(TARGETS post1 DESTINATION ".")
+add_post(post1)

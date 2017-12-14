@@ -96,7 +96,10 @@ inline Float3 generate_camera_direction(const Camera &camera, float u, float v) 
 	return normalized(d);
 }
 
-inline Float3 sky_color_in_direction(const Scene &scene, const Float3 dir) { return float3(0.9f, 0.9f, 1.2f); }
+inline Float3 sky_color_in_direction(const Scene &scene, const Float3 dir) { 
+	float upness = std::max(dir.y, 0.0f);
+	return lerp(float3(0.3f, 0.3f, 0.8f), float3(1.3f,1.3f,2.3f), upness);
+}
 
 bool intersect_closest(const Scene &scene, const Float3 pos, const Float3 dir, IntersectResult &out_result);
 
