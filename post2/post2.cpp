@@ -4,8 +4,6 @@ Float3 pathtrace_sample(ThreadContext &thread_context, const Scene &scene, const
 	uint32_t x, uint32_t y, uint32_t width, uint32_t height, uint32_t sample_index,
 	float one_over_width, float one_over_height)
 {
-	const uint32_t image_index = thread_context.image_index;
-
 	const float camera_x = (x + uniform(thread_context)) * one_over_width;
 	const float camera_y = (y + uniform(thread_context)) * one_over_height;
 	const Float3 camera_direction = generate_camera_direction(camera, camera_x, camera_y);
@@ -22,9 +20,6 @@ Float3 pathtrace_sample(ThreadContext &thread_context, const Scene &scene, const
 			accumulated_color += accumulated_importance * sky_color_in_direction(scene, dir);
 			break;
 		}
-
-		if (image_index == 0)
-			return intersect.diffuse;
 
 		accumulated_color += intersect.emissive * accumulated_importance;
 		dir = random_hemisphere(intersect.face_normal, uniform(thread_context), uniform(thread_context));

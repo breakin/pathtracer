@@ -10,8 +10,7 @@ target_include_directories(shared_code PRIVATE "../deps/stb")
 target_include_directories(shared_code PRIVATE ${EMBREE_INCLUDE_DIRS})
 target_include_directories(shared_code PUBLIC ".")
 
-target_link_libraries(shared_code ${EMBREE_LIBRARIES})
-
+target_link_libraries(shared_code PRIVATE ${EMBREE_LIBRARIES})
 target_compile_definitions(shared_code PRIVATE _CRT_SECURE_NO_WARNINGS)
 
 # TODO: We must move embree.dll to binary directory

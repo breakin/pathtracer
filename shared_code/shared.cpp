@@ -11,7 +11,15 @@
 #include <atomic>
 #include <thread>
 
-// TODO: Find a good generic tilesize
+/*
+	TODO:
+	* Find good tile size
+	* Make random numbers stable? Perhaps that means settings a seed per tile so number of threads doesnt interfere
+
+	NOTE:
+	* Anything in this file as a hack to support the post code. It might be cleaned up over the course of the posts!
+*/
+
 #define TILESIZE 16
 
 namespace {
@@ -59,11 +67,6 @@ bool intersect_closest(const Scene &scene, const Float3 pos, const Float3 dir, I
 }
 
 namespace {
-
-	/*
-		NOTE: Anything in this file as a hack to support the post code.
-			  It might be cleaned up over the course of the posts!
-	*/
 
 	void embree_error(void* userPtr, const RTCError code, const char* str) {
 		printf("Embree error %s\n", str);
@@ -136,23 +139,60 @@ namespace {
 		scene.materials.push_back(Material{float3(1.0f,0.5f,0.5f), float3(0,0,0)});
 
 		uint32_t white_material = scene.materials.size();
-		scene.materials.push_back(Material{float3(0.9f,0.9f,0.9f), float3(0,0,0)});
+		scene.materials.push_back(Material{float3(0.8f,0.8f,0.8f), float3(0,0,0)});
 
-		uint32_t red_emissive_material = scene.materials.size();
-		scene.materials.push_back(Material{float3(0,0,0), float3(2.0f,0,0)});
+		uint32_t greenish_material = scene.materials.size();
+		scene.materials.push_back(Material{float3(0.6f,0.9f,0.6f), float3(0,0,0)});
+
+		uint32_t blueish_material = scene.materials.size();
+		scene.materials.push_back(Material{float3(0.3f,0.3f,0.9f), float3(0,0,0)});
+
+		uint32_t emissive_material = scene.materials.size();
+		scene.materials.push_back(Material{float3(0,0,0), float3(2.0f,2.0f,0.25f)});
 		
-		for (int x = -5; x<= 5; x++) {
-			if (x==0)
-				continue;
-			add_cube(scene, red_material, float3(x*2.0f,2,0), float3(0.5f,0.5f,0.5f));
-			add_cube(scene, red_material, float3(0,2,x*2.0f), float3(0.5f,0.5f,0.5f));
-			add_cube(scene, red_material, float3(0,2+(5+x)*2.0f,0), float3(0.5f,0.5f,0.5f));
-		}
-		add_cube(scene, white_material, float3(0,-0.5f,0), float3(100.0f,0.5f,100.0f)); // Floor cube
-		add_cube(scene, red_emissive_material, float3(0,0.5f,0), float3(1,1,1));
+		// Back wall
+		add_cube(scene, greenish_material, float3(0, 3,        5.0), float3(  5, 3,0.5f));
+		add_cube(scene, greenish_material, float3(-5-0.5f, 3,    0), float3(0.5f,3,5)); // Left
+		add_cube(scene, greenish_material, float3( 5+0.5f, 3,    0), float3(0.5f,3,5)); // Right
+
+		add_cube(scene, blueish_material, float3(-3.0,3, 3.0), float3(0.8f,3,0.8f));
+		add_cube(scene, blueish_material, float3(-3.0,3,-3.0), float3(0.8f,3,0.8f));
+		add_cube(scene, blueish_material, float3( 3.0,3, 3.0), float3(0.8f,3,0.8f));
+		add_cube(scene, blueish_material, float3( 3.0,3,-3.0), float3(0.8f,3,0.8f));
+
+		// Roof
+		add_cube(scene, greenish_material, float3(0,6.25f,0), float3(6,0.25f,6));
+
+		// Floor
+		add_cube(scene, white_material, float3(0,-0.5f,0), float3(100.0f,0.5f,100.0f));
+
+		// Emissive cube
+		add_cube(scene, emissive_material, float3(2.5f,1.5f,0), float3(1,1.5f,1));
 
 		rtcCommit(scene.embree_scene);
 	}
+}
+
+inline float linear_to_sRGB(float c_linear) {
+	// https://en.wikipedia.org/wiki/SRGB
+	const float a = 0.055f;
+	if (c_linear <=0.0031308) {
+		return 12.92f*c_linear;
+	} else {
+		return (1.0f+a)*powf(c_linear, 1.0f/2.4f)-a;
+	}
+}
+
+inline float linear_to_gamma(float x) {
+	return powf(x, (float)(1.0/2.2f));
+}
+
+inline Float3 linear_to_gamma(Float3 linear) {
+	return float3(linear_to_gamma(linear.x), linear_to_gamma(linear.y), linear_to_gamma(linear.z));
+}
+
+inline Float3 linear_to_sRGB(Float3 linear) {
+	return float3(linear_to_sRGB(linear.x), linear_to_sRGB(linear.y), linear_to_sRGB(linear.z));
 }
 
 // https://knarkowicz.wordpress.com/2016/01/06/aces-filmic-tone-mapping-curve/
@@ -168,7 +208,7 @@ Float3 ACESFilm(Float3 x)
 	Float3 n = (x*(c*x+d)+e);
 	Float3 in = float3(1.0f/n.x, 1.0f/n.y, 1.0f/n.z);
 
-    return saturate(t*in);
+    return linear_to_sRGB(saturate(t*in));
 }
 
 struct Settings {
@@ -235,8 +275,6 @@ int main(int argc, char **argv) {
 	const uint32_t num_tiles_y = (settings.height + TILESIZE-1)/TILESIZE;
 	const uint32_t num_tiles   = num_tiles_x * num_tiles_y;
 
-	srand(1239);
-
 	RTCDevice embree_device = rtcNewDevice();
 	Scene scene;
 	rtcDeviceSetErrorFunction2(embree_device, embree_error, nullptr);
@@ -247,7 +285,7 @@ int main(int argc, char **argv) {
 	memset(&framebuffer[0], 0, sizeof(Pixel)*width*height);
 
 	Camera camera;
-	camera.position = float3(0,5,-10);
+	camera.position = float3(0,5,-15);
 	camera.forward = float3(0,0,1);
 	// TODO: Do aspect ratio at least
 	camera.up = float3(0,-1,0); // TODO: Choose a coordinate system and act accordingly! -1 fixes that v value is upside down.. or is it?
@@ -294,9 +332,20 @@ int main(int argc, char **argv) {
 		t.join();
 	}
 
+    std::minstd_rand rng;
+	rng.seed(std::random_device()());
+    std::uniform_real_distribution<float> uniformer;
+
 	std::vector<uint32_t> byte_data(width*height);
 	for (uint32_t y=0, ofs=0; y<height; y++) {
 		for (uint32_t x=0; x<width; x++, ofs++) {
+
+			float v = uniformer(rng);
+			// Tringular noise from https://www.shadertoy.com/view/4t2SDh in range [-1,1] to suppress banding due to 8-bit png
+			// Inspired from INSIDE/Playdead rendering (exactly what they use)
+			float orig = v * 2.0f - 1.0f;
+			v = std::max(-1.0f, orig/sqrtf(abs(v))); // TODO: This is to filter out NANs in HLSL but might not work in our setting
+			const float dither = v - (orig>=0?1:-1);
 
 			// Lets figure out the "tiled" coordinate of this pixel
 			uint32_t tx = x / TILESIZE, ty = y / TILESIZE;
@@ -305,9 +354,10 @@ int main(int argc, char **argv) {
 			uint32_t source_ofs = tile * (TILESIZE * TILESIZE) + ly * TILESIZE + lx;
 
 			Float3 result = ACESFilm(framebuffer[source_ofs].rgb);
-			uint8_t r8 = (uint8_t)std::min(round(result.x * 255.0f), 255.0f);
-			uint8_t g8 = (uint8_t)std::min(round(result.y * 255.0f), 255.0f);
-			uint8_t b8 = (uint8_t)std::min(round(result.z * 255.0f), 255.0f);
+			uint8_t r8 = (uint8_t)std::max(std::min(round(result.x * 255.0f+dither), 255.0f), 0.0f);
+			uint8_t g8 = (uint8_t)std::max(std::min(round(result.y * 255.0f+dither), 255.0f), 0.0f);
+			uint8_t b8 = (uint8_t)std::max(std::min(round(result.z * 255.0f+dither), 255.0f), 0.0f);
+			// TODO: Dithering here, clear banding
 			uint8_t a8 = 0xFF;
 			uint32_t c = r8|(g8<<8)|(b8<<16)|(a8<<24);
 			byte_data[ofs] = c;

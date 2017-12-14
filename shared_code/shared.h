@@ -4,6 +4,7 @@
 
 #include <stdint.h>
 #include <cassert>
+#include <random> // TODO: Overkill
 
 /*
 	Assumes elements are POD-structs. No constructor/destructor.
@@ -98,23 +99,29 @@ inline Float3 generate_camera_direction(const Camera &camera, float u, float v) 
 
 inline Float3 sky_color_in_direction(const Scene &scene, const Float3 dir) { 
 	float upness = std::max(dir.y, 0.0f);
-	return lerp(float3(0.3f, 0.3f, 0.8f), float3(1.3f,1.3f,2.3f), upness);
+	return lerp(float3(0.2f, 0.2f, 0.3f), float3(0.4f,0.4f,0.9f), upness);
 }
 
 bool intersect_closest(const Scene &scene, const Float3 pos, const Float3 dir, IntersectResult &out_result);
 
 /*
 	This is where we stick per-thread information such as seed for random number generators
-
 */
 struct ThreadContext {
 	uint32_t thread_index;
 	uint32_t image_index = 0;
+
+	ThreadContext() : uniform(0.0f, 1.0f) {
+		rng.seed(std::random_device()());
+	}
+
+	// TODO: We should be able to keep a single uint[64] here, no reason to leak <random>
+    std::minstd_rand rng;
+    std::uniform_real_distribution<float> uniform;
 };
 
-// TODO: Turn this into something proper
 inline float uniform(ThreadContext &tc) {
-	return rand()/(float)RAND_MAX;
+	return tc.uniform(tc.rng);
 }
 
 // To be implemented by post
