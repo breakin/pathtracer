@@ -15,6 +15,7 @@
 	TODO:
 	* Find good tile size
 	* Make random numbers stable? Perhaps that means settings a seed per tile so number of threads doesnt interfere
+	* Replace tonemapper. Add exposure control to command line.
 
 	NOTE:
 	* Anything in this file as a hack to support the post code. It might be cleaned up over the course of the posts!
@@ -173,7 +174,7 @@ namespace {
 	}
 }
 
-inline float linear_to_sRGB(float c_linear) {
+inline float linear_to_srgb(float c_linear) {
 	// https://en.wikipedia.org/wiki/SRGB
 	const float a = 0.055f;
 	if (c_linear <=0.0031308) {
@@ -183,33 +184,45 @@ inline float linear_to_sRGB(float c_linear) {
 	}
 }
 
-inline float linear_to_gamma(float x) {
-	return powf(x, (float)(1.0/2.2f));
-}
-
-inline Float3 linear_to_gamma(Float3 linear) {
-	return float3(linear_to_gamma(linear.x), linear_to_gamma(linear.y), linear_to_gamma(linear.z));
-}
-
-inline Float3 linear_to_sRGB(Float3 linear) {
-	return float3(linear_to_sRGB(linear.x), linear_to_sRGB(linear.y), linear_to_sRGB(linear.z));
-}
-
 // https://knarkowicz.wordpress.com/2016/01/06/aces-filmic-tone-mapping-curve/
 Float3 ACESFilm(Float3 x)
 {
 	float a = 2.51f;
-    Float3 b = float3(0.03f, 0.03f, 0.03f);
-    float c = 2.43f;
-    Float3 d = float3(0.59f, 0.59f, 0.59f);
-    Float3 e = float3(0.14f, 0.14f, 0.14f);
+	Float3 b = float3(0.03f, 0.03f, 0.03f);
+	float c = 2.43f;
+	Float3 d = float3(0.59f, 0.59f, 0.59f);
+	Float3 e = float3(0.14f, 0.14f, 0.14f);
 
 	Float3 t = (x*(a*x+b));
 	Float3 n = (x*(c*x+d)+e);
 	Float3 in = float3(1.0f/n.x, 1.0f/n.y, 1.0f/n.z);
 
-    return linear_to_sRGB(saturate(t*in));
+	return saturate(t*in);
 }
+
+uint32_t linear_to_png(Float3 linear, RandomContext &random) {
+	Float3 linear_tonemapped = ACESFilm(linear);
+	Float3 srgb = float3(linear_to_srgb(linear_tonemapped.x), linear_to_srgb(linear_tonemapped.y), linear_to_srgb(linear_tonemapped.z));
+
+	// We are going to convert srgb into 8-bit. This will introduce banding.
+	// To alleviate this we will add noise. This breaks up the banding.
+	// More details can be found in presentations on the game INSIDE from Playdead.
+	// The tringular noise is adapated from https://www.shadertoy.com/view/4t2SDh
+	float v = uniform(random);
+	
+	// Inspired from INSIDE/Playdead rendering (exactly what they use)
+	float orig = v * 2.0f - 1.0f;
+	v = std::max(-1.0f, orig/sqrtf(abs(v))); // TODO: This is to filter out NANs in HLSL but might not work in our setting
+	const float dither = v - (orig>=0?1:-1);
+
+	uint8_t r8 = (uint8_t)std::max(std::min(round(srgb.x * 255.0f + dither), 255.0f), 0.0f);
+	uint8_t g8 = (uint8_t)std::max(std::min(round(srgb.y * 255.0f + dither), 255.0f), 0.0f);
+	uint8_t b8 = (uint8_t)std::max(std::min(round(srgb.z * 255.0f + dither), 255.0f), 0.0f);
+
+	uint8_t a8 = 0xFF;
+	return r8|(g8<<8)|(b8<<16)|(a8<<24);
+}
+
 
 struct Settings {
 	uint32_t image_index = 0; // Basically image index for the blog post
@@ -332,35 +345,18 @@ int main(int argc, char **argv) {
 		t.join();
 	}
 
-    std::minstd_rand rng;
-	rng.seed(std::random_device()());
-    std::uniform_real_distribution<float> uniformer;
+	RandomContext random_context;
 
 	std::vector<uint32_t> byte_data(width*height);
 	for (uint32_t y=0, ofs=0; y<height; y++) {
 		for (uint32_t x=0; x<width; x++, ofs++) {
-
-			float v = uniformer(rng);
-			// Tringular noise from https://www.shadertoy.com/view/4t2SDh in range [-1,1] to suppress banding due to 8-bit png
-			// Inspired from INSIDE/Playdead rendering (exactly what they use)
-			float orig = v * 2.0f - 1.0f;
-			v = std::max(-1.0f, orig/sqrtf(abs(v))); // TODO: This is to filter out NANs in HLSL but might not work in our setting
-			const float dither = v - (orig>=0?1:-1);
 
 			// Lets figure out the "tiled" coordinate of this pixel
 			uint32_t tx = x / TILESIZE, ty = y / TILESIZE;
 			uint32_t lx = x - tx * TILESIZE, ly = y - ty * TILESIZE;
 			uint32_t tile = ty * num_tiles_x + tx;
 			uint32_t source_ofs = tile * (TILESIZE * TILESIZE) + ly * TILESIZE + lx;
-
-			Float3 result = ACESFilm(framebuffer[source_ofs].rgb);
-			uint8_t r8 = (uint8_t)std::max(std::min(round(result.x * 255.0f+dither), 255.0f), 0.0f);
-			uint8_t g8 = (uint8_t)std::max(std::min(round(result.y * 255.0f+dither), 255.0f), 0.0f);
-			uint8_t b8 = (uint8_t)std::max(std::min(round(result.z * 255.0f+dither), 255.0f), 0.0f);
-			// TODO: Dithering here, clear banding
-			uint8_t a8 = 0xFF;
-			uint32_t c = r8|(g8<<8)|(b8<<16)|(a8<<24);
-			byte_data[ofs] = c;
+			byte_data[ofs] = linear_to_png(framebuffer[source_ofs].rgb, random_context);
 		}
 	}
 

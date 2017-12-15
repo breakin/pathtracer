@@ -13,4 +13,8 @@ target_include_directories(shared_code PUBLIC ".")
 target_link_libraries(shared_code PRIVATE ${EMBREE_LIBRARIES})
 target_compile_definitions(shared_code PRIVATE _CRT_SECURE_NO_WARNINGS)
 
+if (MSVC)
+	# TODO: Add /LTCG to library generation to suppress warnings
+endif(MSVC)
+
 # TODO: We must move embree.dll to binary directory

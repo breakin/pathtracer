@@ -104,24 +104,26 @@ inline Float3 sky_color_in_direction(const Scene &scene, const Float3 dir) {
 
 bool intersect_closest(const Scene &scene, const Float3 pos, const Float3 dir, IntersectResult &out_result);
 
-/*
-	This is where we stick per-thread information such as seed for random number generators
-*/
-struct ThreadContext {
-	uint32_t thread_index;
-	uint32_t image_index = 0;
-
-	ThreadContext() : uniform(0.0f, 1.0f) {
+struct RandomContext {
+	RandomContext() : uniform(0.0f, 1.0f) {
 		rng.seed(std::random_device()());
 	}
 
 	// TODO: We should be able to keep a single uint[64] here, no reason to leak <random>
-    std::minstd_rand rng;
-    std::uniform_real_distribution<float> uniform;
+	std::minstd_rand rng;
+	std::uniform_real_distribution<float> uniform;
 };
 
-inline float uniform(ThreadContext &tc) {
-	return tc.uniform(tc.rng);
+/*
+	This is where we stick per-thread information such as seed for random number generators.
+*/
+struct ThreadContext : public RandomContext {
+	uint32_t thread_index;
+	uint32_t image_index = 0;
+};
+
+inline float uniform(RandomContext &random_context) {
+	return random_context.uniform(random_context.rng);
 }
 
 // To be implemented by post
