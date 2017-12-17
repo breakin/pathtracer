@@ -11,27 +11,30 @@ Float3 pathtrace_sample(ThreadContext &thread_context, const Scene &scene, const
 	Float3 pos = camera.position;
 	Float3 dir = camera_direction;
 
-	Float3 accumulated_color = float3(0,0,0);
-	Float3 accumulated_importance = float3(1,1,1);
-
-	for (uint32_t bounces = 0; bounces<100; bounces++) {
-		IntersectResult intersect;
-		if (!intersect_closest(scene, pos, dir, intersect)) {
-			accumulated_color += accumulated_importance * sky_color_in_direction(scene, dir);
-			break;
-		}
-
-		accumulated_color += intersect.emissive * accumulated_importance;
-		dir = random_hemisphere(intersect.face_normal, uniform(thread_context), uniform(thread_context));
-		
-		float area_hemisphere = float(2.0*M_PI);
-		float probability_choosing_dir = 1.0f/area_hemisphere;
-		float brdf_without_color = dot(dir, intersect.face_normal) * float(1.0/M_PI);
-
-		accumulated_importance *= intersect.diffuse * (brdf_without_color / probability_choosing_dir);
-
-		pos = intersect.pos + intersect.face_normal * 1E-6f; // Bias outward to avoid self-intersection
+	// Shoot camera ray
+	IntersectResult intersect;
+	if (!intersect_closest(scene, pos, dir, intersect)) {
+		return sky_color_in_direction(scene, dir);
 	}
 
+	Float3 accumulated_color = float3(0,0,0);
+	accumulated_color += intersect.emissive;
+
+	pos = intersect.pos + intersect.face_normal * 1E-6f; // Bias outward to avoid self-intersection
+	dir = random_hemisphere(intersect.face_normal, uniform(thread_context), uniform(thread_context));
+
+	float area_hemisphere = float(2.0*M_PI);
+	float probability_choosing_dir = 1.0f/area_hemisphere;
+	float brdf_without_color = dot(dir, intersect.face_normal) * float(1.0/M_PI);
+
+	Float3 bounce_weight = intersect.diffuse * (brdf_without_color / probability_choosing_dir);
+
+	// Bounce ray
+	IntersectResult intersect2;
+	if (!intersect_closest(scene, pos, dir, intersect)) {
+		return bounce_weight * sky_color_in_direction(scene, dir);
+	}
+
+	accumulated_color += bounce_weight * intersect.emissive;
 	return accumulated_color;
 }
